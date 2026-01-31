@@ -282,7 +282,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     // GPU texture-based dot material for dot rendering mode
     const dotMaterial = new THREE.ShaderMaterial({
       uniforms: {
-        uSize: { value: 0.8 },
+        uSize: { value: visualRadius * 5.0 }, // Scale with particle radius
         uColor: { value: new THREE.Vector3(0.376, 0.647, 0.980) }, // 0x60a5fa
         uOpacity: { value: 0.9 },
         tPosition: { value: null },
@@ -497,6 +497,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
         // Update particle visual radius (fixed, not affected by smoothness)
         resourcesRef.current.depthMaterial.uniforms.uRadius.value = cfg.particleRadius;
         resourcesRef.current.thicknessMaterial.uniforms.uRadius.value = cfg.particleRadius;
+        resourcesRef.current.dotMaterial.uniforms.uSize.value = cfg.particleRadius * 5.0;
 
         const grav = new THREE.Vector3(0, -cfg.gravity, 0).applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(scene.quaternion).invert());
 
