@@ -360,14 +360,17 @@ export const createFinalFragmentShader = (params: FinalShaderParams) => `
     vec3 absorptionCoeff = vec3(0.45, 0.08, 0.04) * absorptionDensity; // Red absorbs most, blue least
     vec3 absorption = exp(-absorptionCoeff * thickness * 30.0);
 
-    // Apply water tint and absorption
+    // Apply absorption to refracted background
     vec3 waterTint = vec3(${params.waterTintR.toFixed(2)}, ${params.waterTintG.toFixed(2)}, ${params.waterTintB.toFixed(2)});
-    vec3 waterColor = bg * waterTint * absorption;
+    vec3 waterColor = bg * absorption;
 
     // Add deep water color where absorption is strong
     vec3 deepWaterColor = vec3(0.02, 0.08, 0.15); // Dark blue-green
     float depthBlend = 1.0 - min(1.0, (absorption.r + absorption.g + absorption.b) / 3.0);
     waterColor = mix(waterColor, deepWaterColor, depthBlend * 0.7);
+
+    // Ambient water brightness - ensures water is visible even against dark backgrounds
+    waterColor = max(waterColor, waterTint);
 
     // Improved Fresnel with Schlick approximation and smoothstep
     float fresnelBias = ${params.fresnelBias.toFixed(3)};
@@ -433,8 +436,8 @@ export const finalFragmentShader = createFinalFragmentShader({
   edgeSampleRadius: 2.0,
   edgeSmoothness: 5.0,
   absorptionDensity: 0,
-  waterTintR: 0.98,
-  waterTintG: 0.99,
-  waterTintB: 1.0,
+  waterTintR: 0.04,
+  waterTintG: 0.04,
+  waterTintB: 0.04,
   reflectionIntensity: 1.0
 });

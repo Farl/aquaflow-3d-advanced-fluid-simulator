@@ -30,9 +30,9 @@ export interface FluidConfig {
   depthZOffset: number;           // Depth sphere offset (0.1 - 1.0)
   thicknessIntensity: number;     // Thickness contribution (0 - 0.2)
   absorptionDensity: number;      // Water absorption density (0 - 10)
-  waterTintR: number;             // Water color tint R (0.8 - 1.0)
-  waterTintG: number;             // Water color tint G (0.8 - 1.0)
-  waterTintB: number;             // Water color tint B (0.8 - 1.0)
+  waterTintR: number;             // Water color tint R (0 - 1.0)
+  waterTintG: number;             // Water color tint G (0 - 1.0)
+  waterTintB: number;             // Water color tint B (0 - 1.0)
   reflectionIntensity: number;    // HDRI reflection intensity (0 - 2.0)
 }
 

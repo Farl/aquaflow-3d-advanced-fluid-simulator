@@ -18,11 +18,11 @@ const defaultConfig: FluidConfig = {
   rotationY: 0,
   rotationZ: 0,
   boundarySize: 10,
-  renderMode: 'dot',
+  renderMode: 'surface',
   renderScale: 0.5,
   // Rendering debug
-  blurRadius: 15,
-  blurDepthFalloff: 30,
+  blurRadius: 0,
+  blurDepthFalloff: 5,
   showContainer: true,
   // Advanced rendering
   ior: 1.33,
@@ -37,9 +37,9 @@ const defaultConfig: FluidConfig = {
   depthZOffset: 0.45,
   thicknessIntensity: 0.05,
   absorptionDensity: 0,
-  waterTintR: 0.98,
-  waterTintG: 0.99,
-  waterTintB: 1.0,
+  waterTintR: 0.04,
+  waterTintG: 0.04,
+  waterTintB: 0.04,
   reflectionIntensity: 1.0,
 };
 
@@ -223,7 +223,7 @@ const App: React.FC = () => {
                       <span className="text-cyan-400">{config.blurRadius}</span>
                     </div>
                     <input
-                      type="range" min="5" max="30" step="1"
+                      type="range" min="0" max="10" step="1"
                       value={config.blurRadius}
                       onChange={e => setConfig(prev => ({ ...prev, blurRadius: parseFloat(e.target.value) }))}
                       className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500"
@@ -235,7 +235,7 @@ const App: React.FC = () => {
                       <span className="text-cyan-400">{config.blurDepthFalloff}</span>
                     </div>
                     <input
-                      type="range" min="5" max="100" step="5"
+                      type="range" min="1" max="100" step="1"
                       value={config.blurDepthFalloff}
                       onChange={e => setConfig(prev => ({ ...prev, blurDepthFalloff: parseFloat(e.target.value) }))}
                       className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-cyan-500"
@@ -260,7 +260,7 @@ const App: React.FC = () => {
                         ior: 1.33, refractionStrength: 0.05, fresnelPower: 0.4, fresnelIntensity: 0.02, fresnelBias: 0.0,
                         specularPower: 32.0, specularIntensity: 0.25, edgeSampleRadius: 2.0, edgeSmoothness: 5.0,
                         depthZOffset: 0.45, thicknessIntensity: 0.05, absorptionDensity: 0,
-                        waterTintR: 0.98, waterTintG: 0.99, waterTintB: 1.0, reflectionIntensity: 1.0
+                        waterTintR: 0.04, waterTintG: 0.04, waterTintB: 0.04, reflectionIntensity: 1.0
                       }))}
                       className="text-[8px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors"
                     >
@@ -433,19 +433,19 @@ const App: React.FC = () => {
                       </div>
                       <div className="grid grid-cols-3 gap-1">
                         <input
-                          type="range" min="0.8" max="1.0" step="0.01"
+                          type="range" min="0" max="1.0" step="0.01"
                           value={config.waterTintR}
                           onChange={e => setConfig(prev => ({ ...prev, waterTintR: parseFloat(e.target.value) }))}
                           className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-red-400"
                         />
                         <input
-                          type="range" min="0.8" max="1.0" step="0.01"
+                          type="range" min="0" max="1.0" step="0.01"
                           value={config.waterTintG}
                           onChange={e => setConfig(prev => ({ ...prev, waterTintG: parseFloat(e.target.value) }))}
                           className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-green-400"
                         />
                         <input
-                          type="range" min="0.8" max="1.0" step="0.01"
+                          type="range" min="0" max="1.0" step="0.01"
                           value={config.waterTintB}
                           onChange={e => setConfig(prev => ({ ...prev, waterTintB: parseFloat(e.target.value) }))}
                           className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-400"
