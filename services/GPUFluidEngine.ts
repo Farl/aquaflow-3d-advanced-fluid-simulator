@@ -170,6 +170,7 @@ export class GPUFluidEngine {
         uMinDist: { value: config.particleRadius * 2.0 * 0.4 },
         uCollisionStrength: { value: 0.45 },
         uSurfaceTension: { value: config.surfaceTension ?? 0.5 },
+        uCohesionRadius: { value: config.particleRadius * 5.0 },  // Cohesion radius based on particle size
         uParticleRes: { value: new THREE.Vector2(size, size) },
         uParticleCount: { value: 0 }
       },
@@ -402,6 +403,10 @@ export class GPUFluidEngine {
       this.renderer.render(this.scene, this.camera);
 
       // Step 5: Compute forces
+      // Cohesion radius: scales with particle size for proper surface tension behavior
+      // Use 5x particle radius as the cohesion interaction range
+      const cohesionRadius = config.particleRadius * 5.0;
+
       this.forceMaterial.uniforms.tPosition.value = this.positionTarget.read.texture;
       this.forceMaterial.uniforms.tVelocity.value = this.velocityTarget.read.texture;
       this.forceMaterial.uniforms.tDensity.value = this.densityTarget.texture;
@@ -411,6 +416,7 @@ export class GPUFluidEngine {
       this.forceMaterial.uniforms.uMinDist.value = minDist;
       this.forceMaterial.uniforms.uCollisionStrength.value = collisionStrength;
       this.forceMaterial.uniforms.uSurfaceTension.value = config.surfaceTension ?? 0.5;
+      this.forceMaterial.uniforms.uCohesionRadius.value = cohesionRadius;
       this.forceMaterial.uniforms.uParticleCount.value = this.particleCount;
 
       this.quad.material = this.forceMaterial;

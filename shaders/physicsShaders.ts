@@ -199,6 +199,7 @@ export const createForceShader = (maxNeighbors: number = 64) => `
   uniform float uMinDist;
   uniform float uCollisionStrength;
   uniform float uSurfaceTension;
+  uniform float uCohesionRadius;  // Cohesion kernel radius (based on particle size)
   uniform vec2 uParticleRes;
   uniform int uParticleCount;
 
@@ -296,10 +297,14 @@ export const createForceShader = (maxNeighbors: number = 64) => `
         // SPH pressure force - pushes particles apart when compressed
         vec3 kernelGrad = spikyGrad(diff, d, h);
         force += kernelGrad * pressure_i;
+      }
 
-        // Akinci surface tension using cohesion kernel
+      // Akinci surface tension using cohesion kernel
+      // Use cohesion radius (based on particle size) instead of SPH kernel radius
+      // This ensures cohesion force scales properly with particle size
+      if (d < uCohesionRadius) {
         // The kernel naturally handles repulsion (close) vs attraction (far)
-        float coh = cohesionKernel(d, h);
+        float coh = cohesionKernel(d, uCohesionRadius);
         // Negative coh = repulsion, positive coh = attraction
         // Force direction: -n points toward neighbor
         cohesionForce -= n * coh;
@@ -312,14 +317,18 @@ export const createForceShader = (maxNeighbors: number = 64) => `
       }
     }
 
-    // Apply surface tension
-    // Scale by surface tension parameter and normalize by neighbor count
-    float tensionScale = uSurfaceTension * 0.5;
+    // Apply surface tension with radius-based normalization
+    // The Akinci kernel has 1/h^9 normalization which makes it extremely
+    // sensitive to kernel radius. We compensate by scaling with h^2.
+    // Reference radius of 2.0 gives consistent behavior across particle sizes.
+    float refRadius = 2.0;
+    float radiusScale = (uCohesionRadius * uCohesionRadius) / (refRadius * refRadius);
+    float tensionScale = uSurfaceTension * 0.3 * radiusScale;
     vec3 tensionForce = cohesionForce * tensionScale;
 
     // Soft clamp to prevent extreme forces
     float tensionMag = length(tensionForce);
-    float maxTension = 0.3;
+    float maxTension = 0.5 * radiusScale;  // Scale max tension with radius too
     if (tensionMag > maxTension) {
       tensionForce = tensionForce * (maxTension / tensionMag);
     }

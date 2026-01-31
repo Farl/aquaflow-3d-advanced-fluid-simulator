@@ -7,13 +7,13 @@ import { Droplets, Trash2, Info, Settings2, Waves, CircleDot, Zap, Box, ChevronD
 const STORAGE_KEY = 'aquaflow-config';
 
 const defaultConfig: FluidConfig = {
-  particleRadius: 0.45,
+  particleRadius: 0.3,
   visualRatio: 0.7,
   viscosity: 0.04,
   gravity: 15.0,
   restDensity: 50.0,
-  stiffness: 1600.0,
-  surfaceTension: 0.5,
+  stiffness: 500.0,
+  surfaceTension: 0.05,
   maxParticles: 6000,
   rotationX: 0,
   rotationY: 0,
@@ -181,7 +181,7 @@ const App: React.FC = () => {
                   <span className="text-blue-400">{config.surfaceTension.toFixed(2)}</span>
                 </div>
                 <input
-                  type="range" min="0" max="1" step="0.05"
+                  type="range" min="0" max="0.1" step="0.005"
                   value={config.surfaceTension}
                   onChange={e => setConfig(prev => ({ ...prev, surfaceTension: parseFloat(e.target.value) }))}
                   className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
