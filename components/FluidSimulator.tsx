@@ -138,14 +138,14 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     const boundSize = configRef.current.boundarySize;
     const containerGroup = new THREE.Group();
 
-    // Glass material for container faces
+    // Glass material for container faces - use BackSide (front face culling) for proper glass effect
     const glassMaterial = new THREE.MeshPhysicalMaterial({
       color: 0xaaddff,
       transparent: true,
-      opacity: 0.08,
+      opacity: 0.12,
       roughness: 0.05,
       metalness: 0,
-      side: THREE.DoubleSide,
+      side: THREE.BackSide, // Front face culling - only render back faces
       envMapIntensity: 0.3,
       depthWrite: false
     });
@@ -524,9 +524,9 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
 
           const tempBg = scene.background;
           const tempEnv = scene.environment;
-
-          // Use showContainer config (default true if undefined)
           const showCube = cfg.showContainer !== false;
+
+          // Render refraction background (cube visible for refraction)
           container.visible = showCube; helper.visible = showCube; particlesDepth.visible = false;
           renderer.setRenderTarget(refractionRT);
           renderer.clear();
@@ -582,9 +582,15 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
           scene.background = tempBg;
           scene.environment = tempEnv;
 
-          quadMesh.material = resourcesRef.current.finalMaterial;
+          // First render scene with cube (back faces only due to front face culling)
           renderer.setRenderTarget(null);
           renderer.clear();
+          container.visible = showCube;
+          helper.visible = showCube;
+          renderer.render(scene, camera);
+
+          // Then render water composite on top (no clear, blend with scene)
+          quadMesh.material = resourcesRef.current.finalMaterial;
           renderer.render(quadScene, quadCamera);
         } else {
           const showCube = cfg.showContainer !== false;
