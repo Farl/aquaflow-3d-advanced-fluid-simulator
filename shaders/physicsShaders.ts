@@ -214,19 +214,36 @@ export const createForceShader = (maxNeighbors: number = 64) => `
     return coeff * term * (r / d);
   }
 
-  // Cohesion kernel for surface tension - only active at moderate distances
-  // Avoids close range to prevent conflict with collision forces
-  float cohesionKernel(float d, float h, float minDist) {
-    // Only apply cohesion between minDist and h (moderate distance)
-    if (d >= h || d < minDist * 1.5) return 0.0;
+  // Akinci cohesion kernel for surface tension
+  // Key feature: REPULSION at close range, ATTRACTION at moderate range
+  // This prevents particle clumping and explosion
+  // Reference: Akinci et al. "Versatile Surface Tension and Adhesion for SPH Fluids" 2013
+  float cohesionKernel(float d, float h) {
+    if (d >= h || d < 0.0001) return 0.0;
 
-    // Normalize distance to cohesion range
-    float rangeStart = minDist * 1.5;
-    float rangeEnd = h;
-    float t = (d - rangeStart) / (rangeEnd - rangeStart);
+    float h2 = h * h;
+    float h3 = h2 * h;
+    float h6 = h3 * h3;
+    float h9 = h6 * h3;
 
-    // Bell curve: peaks in middle of range, smooth falloff at edges
-    return t * (1.0 - t) * 4.0;
+    // Normalization constant: 32 / (pi * h^9)
+    float k = 32.0 / (3.14159265 * h9);
+    float c = h6 / 64.0;
+
+    float hMinusR = h - d;
+    float hMinusR3 = hMinusR * hMinusR * hMinusR;
+    float r3 = d * d * d;
+
+    float W;
+    if (d > 0.5 * h) {
+      // Outer range: pure attraction
+      W = k * hMinusR3 * r3;
+    } else {
+      // Inner range: can be negative (repulsion) when particles are too close
+      W = k * 2.0 * hMinusR3 * r3 - c;
+    }
+
+    return W;
   }
 
   void main() {
@@ -280,28 +297,31 @@ export const createForceShader = (maxNeighbors: number = 64) => `
         vec3 kernelGrad = spikyGrad(diff, d, h);
         force += kernelGrad * pressure_i;
 
-        // Surface tension / Cohesion force - pulls particles together
-        // Only at moderate distances to avoid conflict with collision
-        float coh = cohesionKernel(d, h, uMinDist);
+        // Akinci surface tension using cohesion kernel
+        // The kernel naturally handles repulsion (close) vs attraction (far)
+        float coh = cohesionKernel(d, h);
+        // Negative coh = repulsion, positive coh = attraction
+        // Force direction: -n points toward neighbor
         cohesionForce -= n * coh;
       }
 
-      // Soft collision - prevents overlap (separate from cohesion range)
+      // Soft collision - additional overlap prevention
       if (d < uMinDist) {
         float overlap = uMinDist - d;
         force += n * overlap * uCollisionStrength;
       }
     }
 
-    // Apply surface tension with neighbor-based scaling
-    // Fewer neighbors = surface particle = stronger cohesion effect
-    float surfaceFactor = 1.0 - min(1.0, float(neighborCount) / 15.0);
-    vec3 tensionForce = cohesionForce * uSurfaceTension * 0.08 * (0.2 + surfaceFactor * 0.8);
+    // Apply surface tension
+    // Scale by surface tension parameter and normalize by neighbor count
+    float tensionScale = uSurfaceTension * 0.5;
+    vec3 tensionForce = cohesionForce * tensionScale;
 
-    // Clamp surface tension force to prevent instability
+    // Soft clamp to prevent extreme forces
     float tensionMag = length(tensionForce);
-    if (tensionMag > 0.5) {
-      tensionForce = tensionForce / tensionMag * 0.5;
+    float maxTension = 0.3;
+    if (tensionMag > maxTension) {
+      tensionForce = tensionForce * (maxTension / tensionMag);
     }
     force += tensionForce;
 
