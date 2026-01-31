@@ -81,12 +81,8 @@ export class GPUFluidEngine {
   // Particle management
   public particleCount: number = 0;
   private maxParticles: number;
-  private textureSize: number;
+  public textureSize: number;
   private baseRadius: number;
-
-  // CPU buffer for reading positions (for rendering)
-  public positions: Float32Array;
-  private positionReadBuffer: Float32Array;
 
   constructor(config: FluidConfig, renderer: THREE.WebGLRenderer) {
     this.renderer = renderer;
@@ -121,10 +117,6 @@ export class GPUFluidEngine {
     };
     this.densityTarget = new THREE.WebGLRenderTarget(size, size, rtOptions);
     this.forceTarget = new THREE.WebGLRenderTarget(size, size, rtOptions);
-
-    // CPU buffer for reading positions
-    this.positions = new Float32Array(this.maxParticles * 3).fill(10000);
-    this.positionReadBuffer = new Float32Array(size * size * 4);
 
     // Initialize textures with inactive particles (w=0)
     this.initializeTextures();
@@ -461,30 +453,7 @@ export class GPUFluidEngine {
 
     // Restore render target
     this.renderer.setRenderTarget(prevTarget);
-
-    // Read positions back to CPU for rendering
-    this.readPositionsToBuffer();
-  }
-
-  private readPositionsToBuffer(): void {
-    const size = this.textureSize;
-
-    // Read position texture to CPU
-    this.renderer.readRenderTargetPixels(
-      this.positionTarget.read,
-      0, 0, size, size,
-      this.positionReadBuffer
-    );
-
-    // Convert to position array (only active particles)
-    for (let i = 0; i < this.particleCount; i++) {
-      const srcIdx = i * 4;
-      const dstIdx = i * 3;
-
-      this.positions[dstIdx] = this.positionReadBuffer[srcIdx];
-      this.positions[dstIdx + 1] = this.positionReadBuffer[srcIdx + 1];
-      this.positions[dstIdx + 2] = this.positionReadBuffer[srcIdx + 2];
-    }
+    // No CPU readback needed - particles render directly from GPU texture
   }
 
   public getPositionTexture(): THREE.Texture {
@@ -493,7 +462,6 @@ export class GPUFluidEngine {
 
   public reset(): void {
     this.particleCount = 0;
-    this.positions.fill(10000);
     this.initializeTextures();
   }
 

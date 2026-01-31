@@ -4,11 +4,11 @@ import * as THREE from 'three';
 import { GPUFluidEngine } from '../services/GPUFluidEngine';
 import { FluidConfig } from '../types';
 import {
-  depthVertexShader,
+  depthVertexShaderGPU,
   createDepthFragmentShader,
   blurVertexShader,
   createBlurFragmentShader,
-  thicknessVertexShader,
+  thicknessVertexShaderGPU,
   createThicknessFragmentShader,
   finalVertexShader,
   createFinalFragmentShader,
@@ -177,8 +177,17 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
 
     const particleGeometry = new THREE.BufferGeometry();
     const maxPart = configRef.current.maxParticles;
+    // Use particle index attribute for GPU texture lookup (no CPU position updates needed)
+    const particleIndices = new Float32Array(maxPart);
+    for (let i = 0; i < maxPart; i++) particleIndices[i] = i;
+    particleGeometry.setAttribute('particleIndex', new THREE.BufferAttribute(particleIndices, 1));
+    // Dummy position attribute (required by THREE.js but not used in GPU shaders)
     particleGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(maxPart * 3), 3));
     particleGeometry.setDrawRange(0, 0);
+
+    // Get texture size from engine for GPU shader uniforms
+    const textureSize = Math.ceil(Math.sqrt(maxPart));
+    const particleRes = new THREE.Vector2(textureSize, textureSize);
 
     // Visual radius is fixed at particleRadius (smoothness only affects physics)
     const visualRadius = configRef.current.particleRadius;
@@ -214,8 +223,15 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     });
 
     const depthMaterial = new THREE.ShaderMaterial({
-      uniforms: { uProj: { value: camera.projectionMatrix }, uScale: { value: renderScale }, uRadius: { value: visualRadius } },
-      vertexShader: depthVertexShader,
+      uniforms: {
+        uProj: { value: camera.projectionMatrix },
+        uScale: { value: renderScale },
+        uRadius: { value: visualRadius },
+        tPosition: { value: null },
+        uParticleRes: { value: particleRes },
+        uParticleCount: { value: 0 }
+      },
+      vertexShader: depthVertexShaderGPU,
       fragmentShader: createDepthFragmentShader(initialShaderParams.depthZOffset)
     });
 
@@ -228,9 +244,15 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     });
 
     const thicknessMaterial = new THREE.ShaderMaterial({
-      uniforms: { uScale: { value: renderScale }, uRadius: { value: configRef.current.particleRadius } },
+      uniforms: {
+        uScale: { value: renderScale },
+        uRadius: { value: configRef.current.particleRadius },
+        tPosition: { value: null },
+        uParticleRes: { value: particleRes },
+        uParticleCount: { value: 0 }
+      },
       transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-      vertexShader: thicknessVertexShader,
+      vertexShader: thicknessVertexShaderGPU,
       fragmentShader: createThicknessFragmentShader(initialShaderParams.thicknessIntensity)
     });
 
@@ -387,9 +409,17 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
 
         // Check if depth shader needs update
         if (newParams.depthZOffset !== currentParams.depthZOffset) {
+          const textureSize = Math.ceil(Math.sqrt(cfg.maxParticles));
           const newDepthMaterial = new THREE.ShaderMaterial({
-            uniforms: { uProj: { value: camera.projectionMatrix }, uScale: { value: cfg.renderScale }, uRadius: { value: cfg.particleRadius } },
-            vertexShader: depthVertexShader,
+            uniforms: {
+              uProj: { value: camera.projectionMatrix },
+              uScale: { value: cfg.renderScale },
+              uRadius: { value: cfg.particleRadius },
+              tPosition: { value: engineRef.current?.getPositionTexture() || null },
+              uParticleRes: { value: new THREE.Vector2(textureSize, textureSize) },
+              uParticleCount: { value: engineRef.current?.particleCount || 0 }
+            },
+            vertexShader: depthVertexShaderGPU,
             fragmentShader: createDepthFragmentShader(newParams.depthZOffset)
           });
           resourcesRef.current.depthMaterial = newDepthMaterial;
@@ -398,10 +428,17 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
 
         // Check if thickness shader needs update
         if (newParams.thicknessIntensity !== currentParams.thicknessIntensity) {
+          const textureSize = Math.ceil(Math.sqrt(cfg.maxParticles));
           const newThicknessMaterial = new THREE.ShaderMaterial({
-            uniforms: { uScale: { value: cfg.renderScale }, uRadius: { value: cfg.particleRadius } },
+            uniforms: {
+              uScale: { value: cfg.renderScale },
+              uRadius: { value: cfg.particleRadius },
+              tPosition: { value: engineRef.current?.getPositionTexture() || null },
+              uParticleRes: { value: new THREE.Vector2(textureSize, textureSize) },
+              uParticleCount: { value: engineRef.current?.particleCount || 0 }
+            },
             transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-            vertexShader: thicknessVertexShader,
+            vertexShader: thicknessVertexShaderGPU,
             fragmentShader: createThicknessFragmentShader(newParams.thicknessIntensity)
           });
           resourcesRef.current.thicknessMaterial = newThicknessMaterial;
@@ -452,9 +489,13 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
         engineRef.current.step(dt, cfg, [grav.x, grav.y, grav.z]);
 
         const count = engineRef.current.particleCount;
-        const posAttr = particleGeometry.getAttribute('position') as THREE.BufferAttribute;
-        posAttr.array.set(engineRef.current.positions.subarray(0, count * 3));
-        posAttr.needsUpdate = true;
+        // Update GPU texture reference and particle count in shaders (no CPU position copy needed)
+        const posTexture = engineRef.current.getPositionTexture();
+        resourcesRef.current.depthMaterial.uniforms.tPosition.value = posTexture;
+        resourcesRef.current.depthMaterial.uniforms.uParticleCount.value = count;
+        resourcesRef.current.thicknessMaterial.uniforms.tPosition.value = posTexture;
+        resourcesRef.current.thicknessMaterial.uniforms.uParticleCount.value = count;
+        // Draw all particles - shader checks if active via texture
         particleGeometry.setDrawRange(0, count);
         onStatsUpdate(count);
 

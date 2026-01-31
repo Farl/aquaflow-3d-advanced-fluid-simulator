@@ -11,6 +11,45 @@ export const depthVertexShader = `
   }
 `;
 
+// GPU Texture-based depth shader - reads positions from texture (no CPU readback)
+export const depthVertexShaderGPU = `
+  uniform float uScale;
+  uniform float uRadius;
+  uniform sampler2D tPosition;
+  uniform vec2 uParticleRes;
+  uniform int uParticleCount;
+  attribute float particleIndex;
+  varying float vViewZ;
+
+  void main() {
+    int idx = int(particleIndex);
+    if (idx >= uParticleCount) {
+      gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+
+    // Calculate UV from particle index
+    float fx = mod(particleIndex, uParticleRes.x);
+    float fy = floor(particleIndex / uParticleRes.x);
+    vec2 puv = (vec2(fx, fy) + 0.5) / uParticleRes;
+
+    vec4 posData = texture2D(tPosition, puv);
+
+    // Check if particle is active (w >= 0.5)
+    if (posData.w < 0.5) {
+      gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+
+    vec4 mvPos = viewMatrix * modelMatrix * vec4(posData.xyz, 1.0);
+    vViewZ = mvPos.z;
+    gl_Position = projectionMatrix * mvPos;
+    gl_PointSize = (2400.0 * uScale * uRadius) / -mvPos.z;
+  }
+`;
+
 export const createDepthFragmentShader = (zOffset: number) => `
   varying float vViewZ;
   void main() {
@@ -72,6 +111,41 @@ export const thicknessVertexShader = `
   uniform float uRadius;
   void main() {
     vec4 mvPos = viewMatrix * modelMatrix * vec4(position, 1.0);
+    gl_Position = projectionMatrix * mvPos;
+    gl_PointSize = (2800.0 * uScale * uRadius) / -mvPos.z;
+  }
+`;
+
+// GPU Texture-based thickness shader - reads positions from texture
+export const thicknessVertexShaderGPU = `
+  uniform float uScale;
+  uniform float uRadius;
+  uniform sampler2D tPosition;
+  uniform vec2 uParticleRes;
+  uniform int uParticleCount;
+  attribute float particleIndex;
+
+  void main() {
+    int idx = int(particleIndex);
+    if (idx >= uParticleCount) {
+      gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+
+    float fx = mod(particleIndex, uParticleRes.x);
+    float fy = floor(particleIndex / uParticleRes.x);
+    vec2 puv = (vec2(fx, fy) + 0.5) / uParticleRes;
+
+    vec4 posData = texture2D(tPosition, puv);
+
+    if (posData.w < 0.5) {
+      gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+
+    vec4 mvPos = viewMatrix * modelMatrix * vec4(posData.xyz, 1.0);
     gl_Position = projectionMatrix * mvPos;
     gl_PointSize = (2800.0 * uScale * uRadius) / -mvPos.z;
   }
