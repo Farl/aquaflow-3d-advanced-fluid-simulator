@@ -439,5 +439,5 @@ export const finalFragmentShader = createFinalFragmentShader({
   waterTintR: 0.04,
   waterTintG: 0.04,
   waterTintB: 0.04,
-  reflectionIntensity: 1.0
+  reflectionIntensity: 3.0
 });

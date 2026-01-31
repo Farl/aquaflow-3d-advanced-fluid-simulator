@@ -34,7 +34,7 @@ export interface FluidConfig {
   waterTintR: number;             // Water color tint R (0 - 1.0)
   waterTintG: number;             // Water color tint G (0 - 1.0)
   waterTintB: number;             // Water color tint B (0 - 1.0)
-  reflectionIntensity: number;    // HDRI reflection intensity (0 - 2.0)
+  reflectionIntensity: number;    // HDRI reflection intensity (0 - 5.0)
 }
 
 export interface Particle {
