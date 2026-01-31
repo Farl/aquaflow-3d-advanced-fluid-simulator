@@ -1,0 +1,5 @@
+{
+  "name": "AquaFlow 3D - Advanced Fluid Simulator",
+  "description": "A high-performance 3D particle-based fluid simulation using Position-Based Fluids (PBF) and custom shader rendering to simulate realistic water behavior in a controlled cube environment.",
+  "requestFramePermissions": []
+}
