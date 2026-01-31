@@ -260,7 +260,7 @@ const App: React.FC = () => {
                         ior: 1.33, refractionStrength: 0.05, fresnelPower: 0.4, fresnelIntensity: 0.02, fresnelBias: 0.0,
                         specularPower: 32.0, specularIntensity: 0.25, edgeSampleRadius: 2.0, edgeSmoothness: 5.0,
                         depthZOffset: 0.45, thicknessIntensity: 0.05, absorptionDensity: 0,
-                        waterTintR: 0.98, waterTintG: 0.99, waterTintB: 1.0
+                        waterTintR: 0.98, waterTintG: 0.99, waterTintB: 1.0, reflectionIntensity: 1.0
                       }))}
                       className="text-[8px] px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/60 hover:text-white transition-colors"
                     >
@@ -270,6 +270,18 @@ const App: React.FC = () => {
                 </div>
                 {showAdvanced && (
                   <div className="space-y-2">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[8px] font-bold text-white/40">
+                        <span>HDRI Reflection</span>
+                        <span className="text-emerald-400">{config.reflectionIntensity.toFixed(2)}</span>
+                      </div>
+                      <input
+                        type="range" min="0" max="2.0" step="0.1"
+                        value={config.reflectionIntensity}
+                        onChange={e => setConfig(prev => ({ ...prev, reflectionIntensity: parseFloat(e.target.value) }))}
+                        className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500"
+                      />
+                    </div>
                     <div className="space-y-1">
                       <div className="flex justify-between text-[8px] font-bold text-white/40">
                         <span>Absorption Density</span>

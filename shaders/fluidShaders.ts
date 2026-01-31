@@ -267,25 +267,24 @@ export const createFinalFragmentShader = (params: FinalShaderParams) => `
     // Transform reflection direction from view space to world space
     vec3 worldReflectDir = (uViewMatrixInverse * vec4(reflectDir, 0.0)).xyz;
 
-    // Sample HDRI for reflection color
+    // Sample HDRI for reflection color (single sample for performance)
     vec3 reflectionColor;
     float reflectionIntensity = ${params.reflectionIntensity.toFixed(2)};
     if (uHasEnvMap > 0.5) {
       vec2 envUv = dirToEquirectangular(worldReflectDir);
-      vec3 envColor = texture2D(tEnvMap, envUv).rgb;
-      // Apply slight blur effect for water reflection (sample nearby)
-      vec2 envUv2 = dirToEquirectangular(worldReflectDir + vec3(0.02, 0.0, 0.0));
-      vec2 envUv3 = dirToEquirectangular(worldReflectDir + vec3(-0.02, 0.0, 0.0));
-      vec2 envUv4 = dirToEquirectangular(worldReflectDir + vec3(0.0, 0.02, 0.0));
-      vec3 envBlurred = (envColor + texture2D(tEnvMap, envUv2).rgb + texture2D(tEnvMap, envUv3).rgb + texture2D(tEnvMap, envUv4).rgb) * 0.25;
-      reflectionColor = mix(envColor, envBlurred, 0.5) * reflectionIntensity;
+      reflectionColor = texture2D(tEnvMap, envUv).rgb;
     } else {
-      reflectionColor = vec3(0.7, 0.85, 1.0) * reflectionIntensity; // Fallback sky color
+      reflectionColor = vec3(0.7, 0.85, 1.0); // Fallback sky color
     }
 
-    // Scale fresnel by intensity and apply as reflection blend
+    // Apply reflection with both base amount and fresnel enhancement
+    // Base reflection: always visible, controlled by reflectionIntensity
+    // Fresnel adds extra reflection at grazing angles
     float fresnelIntensity = ${params.fresnelIntensity.toFixed(3)};
-    waterColor = mix(waterColor, reflectionColor, fresnel * fresnelIntensity);
+    float baseReflection = reflectionIntensity * 0.15; // Base reflection amount
+    float fresnelReflection = fresnel * fresnelIntensity * reflectionIntensity;
+    float totalReflection = min(1.0, baseReflection + fresnelReflection) * edgeFactor;
+    waterColor = mix(waterColor, reflectionColor, totalReflection);
 
     // Specular highlight
     vec3 L = normalize(vec3(0.5, 1.0, 0.3));
