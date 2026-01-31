@@ -162,6 +162,52 @@ export const createThicknessFragmentShader = (intensity: number) => `
 // Keep legacy export for compatibility
 export const thicknessFragmentShader = createThicknessFragmentShader(0.05);
 
+// GPU Texture-based dot shader for dot rendering mode
+export const dotVertexShaderGPU = `
+  uniform float uSize;
+  uniform sampler2D tPosition;
+  uniform vec2 uParticleRes;
+  uniform int uParticleCount;
+  attribute float particleIndex;
+
+  void main() {
+    int idx = int(particleIndex);
+    if (idx >= uParticleCount) {
+      gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+
+    float fx = mod(particleIndex, uParticleRes.x);
+    float fy = floor(particleIndex / uParticleRes.x);
+    vec2 puv = (vec2(fx, fy) + 0.5) / uParticleRes;
+
+    vec4 posData = texture2D(tPosition, puv);
+
+    if (posData.w < 0.5) {
+      gl_Position = vec4(0.0, 0.0, -1000.0, 1.0);
+      gl_PointSize = 0.0;
+      return;
+    }
+
+    vec4 mvPos = viewMatrix * modelMatrix * vec4(posData.xyz, 1.0);
+    gl_Position = projectionMatrix * mvPos;
+    gl_PointSize = (uSize * 100.0) / -mvPos.z;
+  }
+`;
+
+export const dotFragmentShaderGPU = `
+  uniform vec3 uColor;
+  uniform float uOpacity;
+
+  void main() {
+    float d = length(gl_PointCoord - 0.5);
+    if (d > 0.5) discard;
+    float alpha = uOpacity * (1.0 - smoothstep(0.3, 0.5, d));
+    gl_FragColor = vec4(uColor, alpha);
+  }
+`;
+
 // Final composite shader - combines depth, normals, refraction
 export const finalVertexShader = `
   varying vec2 vUv;

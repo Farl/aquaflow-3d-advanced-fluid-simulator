@@ -10,6 +10,8 @@ import {
   createBlurFragmentShader,
   thicknessVertexShaderGPU,
   createThicknessFragmentShader,
+  dotVertexShaderGPU,
+  dotFragmentShaderGPU,
   finalVertexShader,
   createFinalFragmentShader,
   FinalShaderParams
@@ -57,6 +59,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     finalMaterial: THREE.ShaderMaterial;
     depthMaterial: THREE.ShaderMaterial;
     thicknessMaterial: THREE.ShaderMaterial;
+    dotMaterial: THREE.ShaderMaterial;
     particleGeometry: THREE.BufferGeometry;
     envTexture: THREE.Texture | null;
     currentRenderScale: number;
@@ -275,16 +278,27 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
 
     const particlesDepth = new THREE.Points(particleGeometry, depthMaterial);
     const particlesThickness = new THREE.Points(particleGeometry, thicknessMaterial);
-    const particlesDots = new THREE.Points(particleGeometry, new THREE.PointsMaterial({
-      color: 0x60a5fa,
-      size: 0.8,
+
+    // GPU texture-based dot material for dot rendering mode
+    const dotMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        uSize: { value: 0.8 },
+        uColor: { value: new THREE.Vector3(0.376, 0.647, 0.980) }, // 0x60a5fa
+        uOpacity: { value: 0.9 },
+        tPosition: { value: null },
+        uParticleRes: { value: particleRes },
+        uParticleCount: { value: 0 }
+      },
+      vertexShader: dotVertexShaderGPU,
+      fragmentShader: dotFragmentShaderGPU,
       transparent: true,
-      opacity: 0.9
-    }));
+      depthWrite: false
+    });
+    const particlesDots = new THREE.Points(particleGeometry, dotMaterial);
 
     resourcesRef.current = {
       renderer, scene, camera, depthRT, blurRT1, blurRT2, thicknessRT, refractionRT,
-      particlesDepth, particlesThickness, particlesDots, container, helper, quadCamera, quadScene, quadMesh, blurMaterial, finalMaterial, depthMaterial, thicknessMaterial, particleGeometry,
+      particlesDepth, particlesThickness, particlesDots, container, helper, quadCamera, quadScene, quadMesh, blurMaterial, finalMaterial, depthMaterial, thicknessMaterial, dotMaterial, particleGeometry,
       envTexture: null,
       currentRenderScale: renderScale,
       currentBlurRadius: blurRadius,
@@ -495,6 +509,8 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
         resourcesRef.current.depthMaterial.uniforms.uParticleCount.value = count;
         resourcesRef.current.thicknessMaterial.uniforms.tPosition.value = posTexture;
         resourcesRef.current.thicknessMaterial.uniforms.uParticleCount.value = count;
+        resourcesRef.current.dotMaterial.uniforms.tPosition.value = posTexture;
+        resourcesRef.current.dotMaterial.uniforms.uParticleCount.value = count;
         // Draw all particles - shader checks if active via texture
         particleGeometry.setDrawRange(0, count);
         onStatsUpdate(count);
