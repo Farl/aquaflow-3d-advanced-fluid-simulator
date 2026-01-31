@@ -1,7 +1,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { FluidEngine } from '../services/FluidEngine';
+import { GPUFluidEngine } from '../services/GPUFluidEngine';
 import { FluidConfig } from '../types';
 import {
   depthVertexShader,
@@ -24,7 +24,7 @@ interface Props {
 
 const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject, resetRotation }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const engineRef = useRef<FluidEngine | null>(null);
+  const engineRef = useRef<GPUFluidEngine | null>(null);
   const configRef = useRef<FluidConfig>(config);
 
   // Mouse drag state with inertia
@@ -117,7 +117,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     camera.position.set(0, 0, 22);
     camera.lookAt(0, 0, 0);
 
-    const engine = new FluidEngine(configRef.current);
+    const engine = new GPUFluidEngine(configRef.current, renderer);
     engineRef.current = engine;
     engine.addParticles(300, [0, 3, 0]);
 
@@ -550,6 +550,11 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
+
+      // Dispose GPU engine resources
+      if (engineRef.current) {
+        engineRef.current.dispose();
+      }
 
       renderer.dispose();
 
