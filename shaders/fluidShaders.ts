@@ -111,16 +111,34 @@ export interface FinalShaderParams {
   waterTintR: number;
   waterTintG: number;
   waterTintB: number;
+  reflectionIntensity: number;
 }
 
 export const createFinalFragmentShader = (params: FinalShaderParams) => `
   uniform sampler2D tDepth;
   uniform sampler2D tThickness;
   uniform sampler2D tRefraction;
+  uniform sampler2D tEnvMap;
   uniform mat4 uInvProj;
+  uniform mat4 uViewMatrixInverse;
   uniform vec2 uRes;
   uniform float uExposure;
+  uniform float uHasEnvMap;
   varying vec2 vUv;
+
+  // Convert reflection direction to equirectangular UV coordinates
+  vec2 dirToEquirectangular(vec3 dir) {
+    // Normalize direction
+    vec3 d = normalize(dir);
+    // Calculate spherical coordinates
+    float phi = atan(d.z, d.x);
+    float theta = asin(clamp(d.y, -1.0, 1.0));
+    // Convert to UV [0, 1]
+    vec2 uv;
+    uv.x = 0.5 + phi / (2.0 * 3.14159265359);
+    uv.y = 0.5 + theta / 3.14159265359;
+    return uv;
+  }
 
   // ACES Filmic Tone Mapping
   vec3 applyACESToneMap(vec3 color) {
@@ -243,9 +261,30 @@ export const createFinalFragmentShader = (params: FinalShaderParams) => `
     // Attenuate fresnel at edges where normal reconstruction is unreliable
     fresnel *= edgeFactor;
 
+    // Calculate reflection direction in world space
+    vec3 viewNormal = N;
+    vec3 reflectDir = reflect(-V, viewNormal);
+    // Transform reflection direction from view space to world space
+    vec3 worldReflectDir = (uViewMatrixInverse * vec4(reflectDir, 0.0)).xyz;
+
+    // Sample HDRI for reflection color
+    vec3 reflectionColor;
+    float reflectionIntensity = ${params.reflectionIntensity.toFixed(2)};
+    if (uHasEnvMap > 0.5) {
+      vec2 envUv = dirToEquirectangular(worldReflectDir);
+      vec3 envColor = texture2D(tEnvMap, envUv).rgb;
+      // Apply slight blur effect for water reflection (sample nearby)
+      vec2 envUv2 = dirToEquirectangular(worldReflectDir + vec3(0.02, 0.0, 0.0));
+      vec2 envUv3 = dirToEquirectangular(worldReflectDir + vec3(-0.02, 0.0, 0.0));
+      vec2 envUv4 = dirToEquirectangular(worldReflectDir + vec3(0.0, 0.02, 0.0));
+      vec3 envBlurred = (envColor + texture2D(tEnvMap, envUv2).rgb + texture2D(tEnvMap, envUv3).rgb + texture2D(tEnvMap, envUv4).rgb) * 0.25;
+      reflectionColor = mix(envColor, envBlurred, 0.5) * reflectionIntensity;
+    } else {
+      reflectionColor = vec3(0.7, 0.85, 1.0) * reflectionIntensity; // Fallback sky color
+    }
+
     // Scale fresnel by intensity and apply as reflection blend
     float fresnelIntensity = ${params.fresnelIntensity.toFixed(3)};
-    vec3 reflectionColor = vec3(0.7, 0.85, 1.0); // Sky reflection color
     waterColor = mix(waterColor, reflectionColor, fresnel * fresnelIntensity);
 
     // Specular highlight
@@ -277,5 +316,6 @@ export const finalFragmentShader = createFinalFragmentShader({
   absorptionDensity: 0,
   waterTintR: 0.98,
   waterTintG: 0.99,
-  waterTintB: 1.0
+  waterTintB: 1.0,
+  reflectionIntensity: 1.0
 });

@@ -104,6 +104,9 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
         scene.environment = texture;
         if (resourcesRef.current) {
           resourcesRef.current.envTexture = texture;
+          // Update final material with environment texture for reflections
+          resourcesRef.current.finalMaterial.uniforms.tEnvMap.value = texture;
+          resourcesRef.current.finalMaterial.uniforms.uHasEnvMap.value = 1.0;
         }
       },
       undefined,
@@ -206,7 +209,8 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
       waterTintG: configRef.current.waterTintG ?? 0.99,
       waterTintB: configRef.current.waterTintB ?? 1.0,
       depthZOffset: configRef.current.depthZOffset ?? 0.45,
-      thicknessIntensity: configRef.current.thicknessIntensity ?? 0.05
+      thicknessIntensity: configRef.current.thicknessIntensity ?? 0.05,
+      reflectionIntensity: configRef.current.reflectionIntensity ?? 1.0
     });
 
     const depthMaterial = new THREE.ShaderMaterial({
@@ -233,7 +237,9 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     const finalMaterial = new THREE.ShaderMaterial({
       uniforms: {
         tDepth: { value: blurRT2.texture }, tThickness: { value: thicknessRT.texture }, tRefraction: { value: refractionRT.texture },
-        uInvProj: { value: camera.projectionMatrixInverse }, uRes: { value: new THREE.Vector2(rtWidth, rtHeight) },
+        tEnvMap: { value: null }, uHasEnvMap: { value: 0.0 },
+        uInvProj: { value: camera.projectionMatrixInverse }, uViewMatrixInverse: { value: camera.matrixWorld },
+        uRes: { value: new THREE.Vector2(rtWidth, rtHeight) },
         uExposure: { value: 1.2 }
       },
       vertexShader: finalVertexShader,
@@ -375,7 +381,8 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
           waterTintG: cfg.waterTintG ?? 0.99,
           waterTintB: cfg.waterTintB ?? 1.0,
           depthZOffset: cfg.depthZOffset ?? 0.45,
-          thicknessIntensity: cfg.thicknessIntensity ?? 0.05
+          thicknessIntensity: cfg.thicknessIntensity ?? 0.05,
+          reflectionIntensity: cfg.reflectionIntensity ?? 1.0
         });
 
         // Check if depth shader needs update
@@ -415,13 +422,16 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
           newParams.absorptionDensity !== currentParams.absorptionDensity ||
           newParams.waterTintR !== currentParams.waterTintR ||
           newParams.waterTintG !== currentParams.waterTintG ||
-          newParams.waterTintB !== currentParams.waterTintB;
+          newParams.waterTintB !== currentParams.waterTintB ||
+          newParams.reflectionIntensity !== currentParams.reflectionIntensity;
 
         if (finalParamsChanged) {
           const newFinalMaterial = new THREE.ShaderMaterial({
             uniforms: {
               tDepth: { value: blurRT2.texture }, tThickness: { value: thicknessRT.texture }, tRefraction: { value: refractionRT.texture },
-              uInvProj: { value: camera.projectionMatrixInverse }, uRes: { value: finalMaterial.uniforms.uRes.value.clone() },
+              tEnvMap: { value: resourcesRef.current.envTexture }, uHasEnvMap: { value: resourcesRef.current.envTexture ? 1.0 : 0.0 },
+              uInvProj: { value: camera.projectionMatrixInverse }, uViewMatrixInverse: { value: camera.matrixWorld },
+              uRes: { value: finalMaterial.uniforms.uRes.value.clone() },
               uExposure: { value: 1.2 }
             },
             vertexShader: finalVertexShader,
@@ -451,6 +461,8 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
 
         if (cfg.renderMode === 'surface') {
           camera.updateMatrixWorld();
+          // Update view matrix inverse for HDRI reflection calculations
+          resourcesRef.current.finalMaterial.uniforms.uViewMatrixInverse.value = camera.matrixWorld;
 
           const tempBg = scene.background;
           const tempEnv = scene.environment;

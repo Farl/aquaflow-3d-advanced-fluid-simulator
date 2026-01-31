@@ -40,6 +40,7 @@ const defaultConfig: FluidConfig = {
   waterTintR: 0.98,
   waterTintG: 0.99,
   waterTintB: 1.0,
+  reflectionIntensity: 1.0,
 };
 
 const loadConfig = (): FluidConfig => {
