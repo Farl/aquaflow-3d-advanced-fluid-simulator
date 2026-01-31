@@ -94,8 +94,9 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     scene.background = new THREE.Color(0x87CEEB);
 
     const textureLoader = new THREE.TextureLoader();
+    const basePath = import.meta.env.BASE_URL || '/';
     textureLoader.load(
-      '/DayEnvironmentHDRI057_1K/DayEnvironmentHDRI057_1K_TONEMAPPED.jpg',
+      `${basePath}DayEnvironmentHDRI057_1K/DayEnvironmentHDRI057_1K_TONEMAPPED.jpg`,
       (texture) => {
         texture.mapping = THREE.EquirectangularReflectionMapping;
         texture.colorSpace = THREE.SRGBColorSpace;
