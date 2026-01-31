@@ -186,7 +186,7 @@ export const createDensityShader = (maxNeighbors: number = 64) => `
   }
 `;
 
-// Fragment shader: Pressure and collision forces
+// Fragment shader: Pressure, collision and surface tension forces
 export const createForceShader = (maxNeighbors: number = 64) => `
   precision highp float;
 
@@ -198,6 +198,7 @@ export const createForceShader = (maxNeighbors: number = 64) => `
   uniform float uRestDensity;
   uniform float uMinDist;
   uniform float uCollisionStrength;
+  uniform float uSurfaceTension;
   uniform vec2 uParticleRes;
   uniform int uParticleCount;
 
@@ -213,6 +214,21 @@ export const createForceShader = (maxNeighbors: number = 64) => `
     return coeff * term * (r / d);
   }
 
+  // Cohesion kernel for surface tension - only active at moderate distances
+  // Avoids close range to prevent conflict with collision forces
+  float cohesionKernel(float d, float h, float minDist) {
+    // Only apply cohesion between minDist and h (moderate distance)
+    if (d >= h || d < minDist * 1.5) return 0.0;
+
+    // Normalize distance to cohesion range
+    float rangeStart = minDist * 1.5;
+    float rangeEnd = h;
+    float t = (d - rangeStart) / (rangeEnd - rangeStart);
+
+    // Bell curve: peaks in middle of range, smooth falloff at edges
+    return t * (1.0 - t) * 4.0;
+  }
+
   void main() {
     vec4 pos_i = texture2D(tPosition, vUv);
     vec4 density_i = texture2D(tDensity, vUv);
@@ -226,12 +242,14 @@ export const createForceShader = (maxNeighbors: number = 64) => `
     float h = uKernelRadius;
     float h2 = h * h;
 
-    // Pressure calculation with surface tension correction
-    float stiffnessNorm = uStiffness / 2000.0;
-    float pressure_i = max(0.0, (density_i.x - uRestDensity)) * stiffnessNorm;
-    float Scorr = -0.03 * pow(max(0.0, density_i.x / uRestDensity), 4.0);
+    // Pressure: directly use stiffness for clearer effect
+    // stiffness controls how strongly particles resist compression
+    float densityError = max(0.0, density_i.x - uRestDensity);
+    float pressure_i = densityError * uStiffness * 0.0001;
 
     vec3 force = vec3(0.0);
+    vec3 cohesionForce = vec3(0.0);
+    int neighborCount = 0;
 
     // Loop through all particles
     for (int j = 0; j < ${maxNeighbors * 100}; j++) {
@@ -255,19 +273,37 @@ export const createForceShader = (maxNeighbors: number = 64) => `
 
       vec3 n = diff / d;
 
-      // SPH pressure force
       if (d < h) {
+        neighborCount++;
+
+        // SPH pressure force - pushes particles apart when compressed
         vec3 kernelGrad = spikyGrad(diff, d, h);
-        float pressureForce = (pressure_i + Scorr) * 0.01;
-        force += kernelGrad * pressureForce;
+        force += kernelGrad * pressure_i;
+
+        // Surface tension / Cohesion force - pulls particles together
+        // Only at moderate distances to avoid conflict with collision
+        float coh = cohesionKernel(d, h, uMinDist);
+        cohesionForce -= n * coh;
       }
 
-      // Soft collision
+      // Soft collision - prevents overlap (separate from cohesion range)
       if (d < uMinDist) {
         float overlap = uMinDist - d;
         force += n * overlap * uCollisionStrength;
       }
     }
+
+    // Apply surface tension with neighbor-based scaling
+    // Fewer neighbors = surface particle = stronger cohesion effect
+    float surfaceFactor = 1.0 - min(1.0, float(neighborCount) / 15.0);
+    vec3 tensionForce = cohesionForce * uSurfaceTension * 0.08 * (0.2 + surfaceFactor * 0.8);
+
+    // Clamp surface tension force to prevent instability
+    float tensionMag = length(tensionForce);
+    if (tensionMag > 0.5) {
+      tensionForce = tensionForce / tensionMag * 0.5;
+    }
+    force += tensionForce;
 
     // Output force as position delta
     gl_FragColor = vec4(force, 1.0);

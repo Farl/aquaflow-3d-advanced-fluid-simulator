@@ -6,6 +6,7 @@ export interface FluidConfig {
   gravity: number;
   restDensity: number;
   stiffness: number;
+  surfaceTension: number;       // Surface tension / cohesion strength (0 - 1.0)
   maxParticles: number;
   rotationX: number;
   rotationY: number;

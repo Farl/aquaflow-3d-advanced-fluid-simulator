@@ -169,6 +169,7 @@ export class GPUFluidEngine {
         uRestDensity: { value: config.restDensity },
         uMinDist: { value: config.particleRadius * 2.0 * 0.4 },
         uCollisionStrength: { value: 0.45 },
+        uSurfaceTension: { value: config.surfaceTension ?? 0.5 },
         uParticleRes: { value: new THREE.Vector2(size, size) },
         uParticleCount: { value: 0 }
       },
@@ -409,6 +410,7 @@ export class GPUFluidEngine {
       this.forceMaterial.uniforms.uRestDensity.value = config.restDensity;
       this.forceMaterial.uniforms.uMinDist.value = minDist;
       this.forceMaterial.uniforms.uCollisionStrength.value = collisionStrength;
+      this.forceMaterial.uniforms.uSurfaceTension.value = config.surfaceTension ?? 0.5;
       this.forceMaterial.uniforms.uParticleCount.value = this.particleCount;
 
       this.quad.material = this.forceMaterial;
