@@ -215,6 +215,15 @@ export const createForceShader = (maxNeighbors: number = 64) => `
     return coeff * term * (r / d);
   }
 
+  // Helper: clamp vector to maximum length
+  vec3 clampLength(vec3 v, float maxLen) {
+    float len = length(v);
+    if (len > maxLen) {
+      return v * (maxLen / len);
+    }
+    return v;
+  }
+
   // Akinci cohesion kernel for surface tension
   // Key feature: REPULSION at close range, ATTRACTION at moderate range
   // This prevents particle clumping and explosion
@@ -222,15 +231,21 @@ export const createForceShader = (maxNeighbors: number = 64) => `
   float cohesionKernel(float d, float h) {
     if (d >= h || d < 0.0001) return 0.0;
 
-    float h2 = h * h;
-    float h3 = h2 * h;
+    // STABILITY FIX: Use minimum effective h for normalization
+    // The 1/h^9 term explodes for small h (h=0.075 gives k=1.36e11)
+    // Using h_safe ensures stable normalization while preserving kernel shape
+    float h_safe = max(h, 1.0);
+
+    float h2 = h_safe * h_safe;
+    float h3 = h2 * h_safe;
     float h6 = h3 * h3;
     float h9 = h6 * h3;
 
-    // Normalization constant: 32 / (pi * h^9)
+    // Normalization constant: 32 / (pi * h^9) - now bounded
     float k = 32.0 / (3.14159265 * h9);
     float c = h6 / 64.0;
 
+    // Use actual h for distance calculations (preserves kernel shape)
     float hMinusR = h - d;
     float hMinusR3 = hMinusR * hMinusR * hMinusR;
     float r3 = d * d * d;
@@ -263,9 +278,16 @@ export const createForceShader = (maxNeighbors: number = 64) => `
     // Pressure: directly use stiffness for clearer effect
     // stiffness controls how strongly particles resist compression
     float densityError = max(0.0, density_i.x - uRestDensity);
-    float pressure_i = densityError * uStiffness * 0.0001;
+    float pressure_i = densityError * uStiffness * 0.001;
 
-    vec3 force = vec3(0.0);
+    // STABILITY FIX: Clamp maximum pressure to prevent explosion
+    // At extreme compression, pressure can become unbounded
+    float maxPressure = uRestDensity * 0.5;  // Reasonable upper bound
+    pressure_i = min(pressure_i, maxPressure);
+
+    // STABILITY FIX: Track each force type separately for individual clamping
+    vec3 pressureForce = vec3(0.0);
+    vec3 collisionForce = vec3(0.0);
     vec3 cohesionForce = vec3(0.0);
     int neighborCount = 0;
 
@@ -296,7 +318,7 @@ export const createForceShader = (maxNeighbors: number = 64) => `
 
         // SPH pressure force - pushes particles apart when compressed
         vec3 kernelGrad = spikyGrad(diff, d, h);
-        force += kernelGrad * pressure_i;
+        pressureForce += kernelGrad * pressure_i;
       }
 
       // Akinci surface tension using cohesion kernel
@@ -313,9 +335,17 @@ export const createForceShader = (maxNeighbors: number = 64) => `
       // Soft collision - additional overlap prevention
       if (d < uMinDist) {
         float overlap = uMinDist - d;
-        force += n * overlap * uCollisionStrength;
+        collisionForce += n * overlap * uCollisionStrength;
       }
     }
+
+    // STABILITY FIX: Clamp pressure force to prevent explosion
+    float maxPressureForce = 5.0;  // Allow stronger pressure for bouncy collisions
+    pressureForce = clampLength(pressureForce, maxPressureForce);
+
+    // STABILITY FIX: Clamp collision force
+    float maxCollisionForce = 4.0;  // Allow stronger collisions
+    collisionForce = clampLength(collisionForce, maxCollisionForce);
 
     // Apply surface tension with radius-based normalization
     // The Akinci kernel has 1/h^9 normalization which makes it extremely
@@ -326,13 +356,18 @@ export const createForceShader = (maxNeighbors: number = 64) => `
     float tensionScale = uSurfaceTension * 0.3 * radiusScale;
     vec3 tensionForce = cohesionForce * tensionScale;
 
-    // Soft clamp to prevent extreme forces
-    float tensionMag = length(tensionForce);
-    float maxTension = 0.5 * radiusScale;  // Scale max tension with radius too
-    if (tensionMag > maxTension) {
-      tensionForce = tensionForce * (maxTension / tensionMag);
-    }
-    force += tensionForce;
+    // STABILITY FIX: More aggressive tension clamp
+    // Use fixed max that doesn't scale up with radius to prevent corner explosions
+    float maxTension = 0.3;  // Fixed max, not scaled
+    tensionForce = clampLength(tensionForce, maxTension);
+
+    // Combine all forces
+    vec3 force = pressureForce + collisionForce + tensionForce;
+
+    // STABILITY FIX: Final safety clamp on total force
+    // This is a backstop - should rarely activate if individual clamps work
+    float maxTotalForce = 10.0;
+    force = clampLength(force, maxTotalForce);
 
     // Output force as position delta
     gl_FragColor = vec4(force, 1.0);
@@ -345,6 +380,7 @@ export const applyForcesShader = `
 
   uniform sampler2D tPosition;
   uniform sampler2D tForce;
+  uniform float uMaxPositionDelta;  // Maximum position change per iteration
 
   varying vec2 vUv;
 
@@ -357,7 +393,15 @@ export const applyForcesShader = `
       return;
     }
 
-    gl_FragColor = vec4(pos.xyz + force.xyz, pos.w);
+    // STABILITY FIX: Clamp position delta to prevent teleportation
+    // This is critical for corner cases where forces can become extreme
+    vec3 delta = force.xyz;
+    float deltaMag = length(delta);
+    if (deltaMag > uMaxPositionDelta) {
+      delta = delta * (uMaxPositionDelta / deltaMag);
+    }
+
+    gl_FragColor = vec4(pos.xyz + delta, pos.w);
   }
 `;
 
@@ -419,6 +463,7 @@ export const velocityUpdateShader = `
   uniform float uViscosity;
   uniform float uBoundary;
   uniform float uBoundaryOffset;
+  uniform float uMaxVelocity;  // Maximum velocity magnitude
 
   varying vec2 vUv;
 
@@ -434,6 +479,17 @@ export const velocityUpdateShader = `
 
     // Calculate velocity from position change
     vec3 newVel = (pos.xyz - oldPos.xyz) / uDt;
+
+    // STABILITY FIX: Soft velocity clamp to prevent explosion
+    // Use smooth falloff instead of hard clamp to preserve momentum direction
+    float velMag = length(newVel);
+    if (velMag > uMaxVelocity) {
+      // Soft clamp: asymptotic approach, preserves some energy
+      float softFactor = uMaxVelocity / velMag;
+      // Blend between hard clamp and original (keep 20% of excess)
+      softFactor = mix(softFactor, 1.0, 0.2);
+      newVel *= softFactor;
+    }
 
     // Apply viscosity damping
     float vL = 1.0 - (uViscosity * uDt);
@@ -455,6 +511,87 @@ export const velocityUpdateShader = `
     }
 
     gl_FragColor = vec4(newVel, vel.w);
+  }
+`;
+
+// Fragment shader: XSPH viscosity - smooths velocity towards neighbor average
+// This prevents particle oscillation and improves stability
+export const createXSPHShader = (maxNeighbors: number = 64) => `
+  precision highp float;
+
+  uniform sampler2D tPosition;
+  uniform sampler2D tVelocity;
+  uniform float uKernelRadius;
+  uniform float uXSPHCoeff;  // Typically 0.01 - 0.1
+  uniform vec2 uParticleRes;
+  uniform int uParticleCount;
+
+  varying vec2 vUv;
+
+  // SPH Poly6 kernel for weighting
+  float poly6(float r2, float h2) {
+    if (r2 >= h2) return 0.0;
+    float diff = h2 - r2;
+    float h9 = h2 * h2 * h2 * h2 * sqrt(h2);
+    return 315.0 / (64.0 * 3.14159265 * h9) * diff * diff * diff;
+  }
+
+  void main() {
+    vec4 pos_i = texture2D(tPosition, vUv);
+    vec4 vel_i = texture2D(tVelocity, vUv);
+
+    if (pos_i.w < 0.5) {
+      gl_FragColor = vel_i;
+      return;
+    }
+
+    float h = uKernelRadius;
+    float h2 = h * h;
+
+    vec3 velCorrection = vec3(0.0);
+    float totalWeight = 0.0;
+
+    // Loop through all particles
+    for (int j = 0; j < ${maxNeighbors * 100}; j++) {
+      if (j >= uParticleCount) break;
+
+      float jx = mod(float(j), uParticleRes.x);
+      float jy = floor(float(j) / uParticleRes.x);
+      vec2 juv = (vec2(jx, jy) + 0.5) / uParticleRes;
+
+      // Skip self
+      if (abs(juv.x - vUv.x) < 0.0001 && abs(juv.y - vUv.y) < 0.0001) continue;
+
+      vec4 pos_j = texture2D(tPosition, juv);
+      if (pos_j.w < 0.5) continue;
+
+      vec3 diff = pos_i.xyz - pos_j.xyz;
+      float r2 = dot(diff, diff);
+
+      if (r2 < h2) {
+        vec4 vel_j = texture2D(tVelocity, juv);
+        float w = poly6(r2, h2);
+
+        // XSPH: move velocity towards neighbor's velocity
+        velCorrection += (vel_j.xyz - vel_i.xyz) * w;
+        totalWeight += w;
+      }
+    }
+
+    // Apply XSPH correction
+    vec3 newVel = vel_i.xyz;
+    if (totalWeight > 0.0001) {
+      newVel += uXSPHCoeff * velCorrection;
+    }
+
+    // Clamp to prevent extreme velocities
+    float maxVel = 50.0;
+    float velMag = length(newVel);
+    if (velMag > maxVel) {
+      newVel *= maxVel / velMag;
+    }
+
+    gl_FragColor = vec4(newVel, vel_i.w);
   }
 `;
 

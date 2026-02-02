@@ -67,22 +67,30 @@ export class FluidEngine {
   public step(dt: number, config: FluidConfig, gravityVec: [number, number, number]) {
     if (this.particleCount === 0) return;
 
-    // FIXED kernel radius for SPH (independent of visual particle size)
-    // This keeps fluid behavior consistent
+    // NEW DESIGN: Separate physics and visual radius
+    // - particleRadius (from UI) = VISUAL particle size (what user sees/controls)
+    // - smoothness = visual / physics ratio
+    // - physicsRadius = visualRadius / smoothness
+    const visualRadius = config.particleRadius;
+    const smoothness = Math.max(1.0, config.visualRatio);
+    const physicsRadius = visualRadius / smoothness;
+
+    // SPH kernel radius - fixed value for stability
     const h = 1.7;
     const h2 = h * h;
     const poly6 = 315 / (64 * Math.PI * Math.pow(h, 9));
     const spikyGrad = -45 / (Math.PI * Math.pow(h, 6));
 
-    // Cell size for spatial hashing - use larger of kernel or particle collision distance
-    // Higher smoothness (visualRatio) = smaller collision distance = smoother water surface
-    const smoothness = config.visualRatio;
-    const minDist = config.particleRadius * 2.0 * (1.4 - smoothness);
+    // Rest density - use config value directly
+    const effectiveRestDensity = config.restDensity;
+
+    // Collision distance based on physics particle size
+    const minDist = physicsRadius * 2.0;
     const cellSize = Math.max(h, minDist);
 
     const boundary = config.boundarySize / 2;
-    const boundaryOffset = config.particleRadius * (1.4 - smoothness);
-    const wallRepelDist = config.particleRadius * 1.2;
+    const boundaryOffset = physicsRadius;
+    const wallRepelDist = physicsRadius * 1.2;
 
     const sDt = dt;
 
@@ -143,9 +151,12 @@ export class FluidEngine {
 
         // Stiffness controls how bouncy/springy the fluid is
         // Higher stiffness = more resistance to compression = bouncier
-        const stiffnessNorm = config.stiffness / 2000.0; // 0.25 to 2.5 range
-        const pressure = Math.max(0, (density - config.restDensity)) * stiffnessNorm;
-        const Scorr = -0.03 * Math.pow(Math.max(0, density / config.restDensity), 4);
+        const stiffnessNorm = config.stiffness / 2000.0;
+        // Pressure calculation matches GPU: densityError * stiffness * 0.001
+        const densityError = Math.max(0, density - effectiveRestDensity);
+        const pressure = densityError * config.stiffness * 0.001;
+        // Clamp pressure like GPU (maxPressure = restDensity * 0.5)
+        const clampedPressure = Math.min(pressure, effectiveRestDensity * 0.5);
 
         for (const j of neighbors) {
           const jIdx = j * 3;
@@ -160,11 +171,10 @@ export class FluidEngine {
           const nx = dx/d, ny = dy/d, nz = dz/d;
           let mx = 0, my = 0, mz = 0;
 
-          // SPH pressure force - stiffness now has significant effect
+          // SPH pressure force - matches GPU calculation
           if (d < h) {
             const kernelGrad = spikyGrad * Math.pow(h - d, 2);
-            // Much larger multiplier so pressure is visible
-            const force = (pressure + Scorr) * kernelGrad * 0.01;
+            const force = clampedPressure * kernelGrad;
             mx += nx * force;
             my += ny * force;
             mz += nz * force;
@@ -174,8 +184,8 @@ export class FluidEngine {
           // Higher stiffness = stronger collision response
           if (d < minDist) {
             const overlap = (minDist - d);
-            // Collision strength based on stiffness (0.3 to 0.7)
-            const collisionStrength = 0.3 + stiffnessNorm * 0.15;
+            // Collision strength matches GPU: 0.5 + stiffnessNorm * 0.3
+            const collisionStrength = 0.5 + stiffnessNorm * 0.3;
             mx += nx * overlap * collisionStrength;
             my += ny * overlap * collisionStrength;
             mz += nz * overlap * collisionStrength;

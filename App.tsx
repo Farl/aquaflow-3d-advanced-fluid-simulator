@@ -8,7 +8,7 @@ const STORAGE_KEY = 'aquaflow-config';
 
 const defaultConfig: FluidConfig = {
   particleRadius: 0.3,
-  visualRatio: 0.7,
+  visualRatio: 1.2,
   viscosity: 0.04,
   gravity: 15.0,
   restDensity: 50.0,
@@ -168,7 +168,7 @@ const App: React.FC = () => {
                   <span className="text-blue-400">{config.stiffness.toFixed(0)}</span>
                 </div>
                 <input
-                  type="range" min="500" max="5000" step="250"
+                  type="range" min="0" max="5000" step="50"
                   value={config.stiffness}
                   onChange={e => setConfig(prev => ({ ...prev, stiffness: parseFloat(e.target.value) }))}
                   className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
@@ -178,10 +178,10 @@ const App: React.FC = () => {
               <div className="space-y-1">
                 <div className="flex justify-between text-[9px] font-bold text-white/50 uppercase tracking-wider">
                   <span>Surface Tension</span>
-                  <span className="text-blue-400">{config.surfaceTension.toFixed(2)}</span>
+                  <span className="text-blue-400">{config.surfaceTension.toFixed(4)}</span>
                 </div>
                 <input
-                  type="range" min="0" max="0.1" step="0.005"
+                  type="range" min="0" max="0.1" step="0.0025"
                   value={config.surfaceTension}
                   onChange={e => setConfig(prev => ({ ...prev, surfaceTension: parseFloat(e.target.value) }))}
                   className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"
@@ -207,7 +207,7 @@ const App: React.FC = () => {
                   <span className="text-blue-400">{config.visualRatio.toFixed(1)}</span>
                 </div>
                 <input
-                  type="range" min="0.3" max="1.5" step="0.1"
+                  type="range" min="1" max="3" step="0.1"
                   value={config.visualRatio}
                   onChange={e => setConfig(prev => ({ ...prev, visualRatio: parseFloat(e.target.value) }))}
                   className="w-full h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-blue-500"

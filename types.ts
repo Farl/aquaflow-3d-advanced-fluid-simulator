@@ -1,7 +1,7 @@
 
 export interface FluidConfig {
   particleRadius: number;
-  visualRatio: number; // Smoothness: 0.3 = rough (large collision), 1.0+ = smooth (small/no collision)
+  visualRatio: number; // Smoothness: visual/physics ratio. Higher = smaller physics radius = more visual overlap = smoother look
   viscosity: number;
   gravity: number;
   restDensity: number;

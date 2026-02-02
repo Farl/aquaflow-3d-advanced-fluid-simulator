@@ -10,6 +10,7 @@ import {
   applyForcesShader,
   boundaryShader,
   velocityUpdateShader,
+  createXSPHShader,
   copyPositionShader,
   addParticlesShader,
   initVelocityShader
@@ -74,6 +75,7 @@ export class GPUFluidEngine {
   private applyForcesMaterial: THREE.ShaderMaterial;
   private boundaryMaterial: THREE.ShaderMaterial;
   private velocityUpdateMaterial: THREE.ShaderMaterial;
+  private xsphMaterial: THREE.ShaderMaterial;  // XSPH viscosity
   private copyMaterial: THREE.ShaderMaterial;
   private addParticlesMaterial: THREE.ShaderMaterial;
   private initVelocityMaterial: THREE.ShaderMaterial;
@@ -181,7 +183,8 @@ export class GPUFluidEngine {
     this.applyForcesMaterial = new THREE.ShaderMaterial({
       uniforms: {
         tPosition: { value: null },
-        tForce: { value: null }
+        tForce: { value: null },
+        uMaxPositionDelta: { value: config.particleRadius * 2.0 }  // Max movement per iteration
       },
       vertexShader: computeVertexShader,
       fragmentShader: applyForcesShader
@@ -207,10 +210,25 @@ export class GPUFluidEngine {
         uDt: { value: 0.016 },
         uViscosity: { value: config.viscosity },
         uBoundary: { value: config.boundarySize / 2 },
-        uBoundaryOffset: { value: config.particleRadius * 0.4 }
+        uBoundaryOffset: { value: config.particleRadius * 0.4 },
+        uMaxVelocity: { value: 30.0 }  // Max velocity (units per second)
       },
       vertexShader: computeVertexShader,
       fragmentShader: velocityUpdateShader
+    });
+
+    // XSPH viscosity - smooths velocity towards neighbor average
+    this.xsphMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        tPosition: { value: null },
+        tVelocity: { value: null },
+        uKernelRadius: { value: 1.7 },
+        uXSPHCoeff: { value: 0.00 },  // XSPH coefficient (0.01 - 0.1)
+        uParticleRes: { value: new THREE.Vector2(size, size) },
+        uParticleCount: { value: 0 }
+      },
+      vertexShader: computeVertexShader,
+      fragmentShader: createXSPHShader(64)
     });
 
     this.copyMaterial = new THREE.ShaderMaterial({
@@ -349,13 +367,30 @@ export class GPUFluidEngine {
   public step(dt: number, config: FluidConfig, gravityVec: [number, number, number]): void {
     if (this.particleCount === 0) return;
 
-    const h = 1.7; // Fixed kernel radius
-    const smoothness = config.visualRatio;
-    const minDist = config.particleRadius * 2.0 * (1.4 - smoothness);
+    // NEW DESIGN: Separate physics and visual radius
+    // - particleRadius (from UI) = VISUAL particle size (what user sees/controls)
+    // - smoothness = visual / physics ratio
+    // - physicsRadius = visualRadius / smoothness
+    // - smoothness > 1 means physics < visual → more visual overlap → smoother look
+    const visualRadius = config.particleRadius;
+    const smoothness = Math.max(1.0, config.visualRatio); // Minimum 1.0 (physics <= visual)
+    const physicsRadius = visualRadius / smoothness;
+
+    // SPH kernel radius - fixed value or based on physics radius
+    // Using fixed value like original for stability
+    const h = 1.7;
+
+    // Rest density - use config value directly (no scaling needed with fixed h)
+    const effectiveRestDensity = config.restDensity;
+
+    // Collision distance based on physics particle size
+    const minDist = physicsRadius * 2.0;
+
     const boundary = config.boundarySize / 2;
-    const boundaryOffset = config.particleRadius * (1.4 - smoothness);
+    const boundaryOffset = physicsRadius;
+
     const stiffnessNorm = config.stiffness / 2000.0;
-    const collisionStrength = 0.3 + stiffnessNorm * 0.15;
+    const collisionStrength = 0.5 + stiffnessNorm * 0.3;
 
     // Save current render target
     const prevTarget = this.renderer.getRenderTarget();
@@ -395,7 +430,7 @@ export class GPUFluidEngine {
       this.densityMaterial.uniforms.tPosition.value = this.positionTarget.read.texture;
       this.densityMaterial.uniforms.tVelocity.value = this.velocityTarget.read.texture;
       this.densityMaterial.uniforms.uKernelRadius.value = h;
-      this.densityMaterial.uniforms.uRestDensity.value = config.restDensity;
+      this.densityMaterial.uniforms.uRestDensity.value = effectiveRestDensity;
       this.densityMaterial.uniforms.uParticleCount.value = this.particleCount;
 
       this.quad.material = this.densityMaterial;
@@ -403,16 +438,16 @@ export class GPUFluidEngine {
       this.renderer.render(this.scene, this.camera);
 
       // Step 5: Compute forces
-      // Cohesion radius: scales with particle size for proper surface tension behavior
-      // Use 5x particle radius as the cohesion interaction range
-      const cohesionRadius = config.particleRadius * 5.0;
+      // Cohesion radius: scales with PHYSICS particle size for proper surface tension behavior
+      // Use 5x physics radius as the cohesion interaction range (same as kernel radius)
+      const cohesionRadius = physicsRadius * 5.0;
 
       this.forceMaterial.uniforms.tPosition.value = this.positionTarget.read.texture;
       this.forceMaterial.uniforms.tVelocity.value = this.velocityTarget.read.texture;
       this.forceMaterial.uniforms.tDensity.value = this.densityTarget.texture;
       this.forceMaterial.uniforms.uKernelRadius.value = h;
       this.forceMaterial.uniforms.uStiffness.value = config.stiffness;
-      this.forceMaterial.uniforms.uRestDensity.value = config.restDensity;
+      this.forceMaterial.uniforms.uRestDensity.value = effectiveRestDensity;
       this.forceMaterial.uniforms.uMinDist.value = minDist;
       this.forceMaterial.uniforms.uCollisionStrength.value = collisionStrength;
       this.forceMaterial.uniforms.uSurfaceTension.value = config.surfaceTension ?? 0.5;
@@ -426,6 +461,8 @@ export class GPUFluidEngine {
       // Step 6: Apply forces
       this.applyForcesMaterial.uniforms.tPosition.value = this.positionTarget.read.texture;
       this.applyForcesMaterial.uniforms.tForce.value = this.forceTarget.texture;
+      // STABILITY FIX: Limit position delta per iteration to prevent teleportation
+      this.applyForcesMaterial.uniforms.uMaxPositionDelta.value = config.particleRadius * 3.0;
 
       this.quad.material = this.applyForcesMaterial;
       this.renderer.setRenderTarget(this.positionTarget.write);
@@ -438,7 +475,7 @@ export class GPUFluidEngine {
     this.boundaryMaterial.uniforms.tVelocity.value = this.velocityTarget.read.texture;
     this.boundaryMaterial.uniforms.uBoundary.value = boundary;
     this.boundaryMaterial.uniforms.uBoundaryOffset.value = boundaryOffset;
-    this.boundaryMaterial.uniforms.uWallRepelDist.value = config.particleRadius * 1.2;
+    this.boundaryMaterial.uniforms.uWallRepelDist.value = physicsRadius * 1.2;
 
     this.quad.material = this.boundaryMaterial;
     this.renderer.setRenderTarget(this.positionTarget.write);
@@ -453,8 +490,24 @@ export class GPUFluidEngine {
     this.velocityUpdateMaterial.uniforms.uViscosity.value = config.viscosity;
     this.velocityUpdateMaterial.uniforms.uBoundary.value = boundary;
     this.velocityUpdateMaterial.uniforms.uBoundaryOffset.value = boundaryOffset;
+    // STABILITY FIX: Limit max velocity to prevent explosion
+    // Scale with boundary size so particles can traverse the container in ~0.5 seconds
+    this.velocityUpdateMaterial.uniforms.uMaxVelocity.value = config.boundarySize * 2.0;
 
     this.quad.material = this.velocityUpdateMaterial;
+    this.renderer.setRenderTarget(this.velocityTarget.write);
+    this.renderer.render(this.scene, this.camera);
+    this.velocityTarget.swap();
+
+    // Step 9: XSPH viscosity - smooth velocity towards neighbor average
+    // This prevents particle oscillation and improves stability
+    this.xsphMaterial.uniforms.tPosition.value = this.positionTarget.read.texture;
+    this.xsphMaterial.uniforms.tVelocity.value = this.velocityTarget.read.texture;
+    this.xsphMaterial.uniforms.uKernelRadius.value = h;
+    this.xsphMaterial.uniforms.uXSPHCoeff.value = 0.01;  // Reduced for more dynamic splashing
+    this.xsphMaterial.uniforms.uParticleCount.value = this.particleCount;
+
+    this.quad.material = this.xsphMaterial;
     this.renderer.setRenderTarget(this.velocityTarget.write);
     this.renderer.render(this.scene, this.camera);
     this.velocityTarget.swap();
@@ -487,6 +540,7 @@ export class GPUFluidEngine {
     this.applyForcesMaterial.dispose();
     this.boundaryMaterial.dispose();
     this.velocityUpdateMaterial.dispose();
+    this.xsphMaterial.dispose();
     this.copyMaterial.dispose();
     this.addParticlesMaterial.dispose();
     this.initVelocityMaterial.dispose();
