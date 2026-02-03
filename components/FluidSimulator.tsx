@@ -1,6 +1,7 @@
 
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 import { GPUFluidEngine } from '../services/GPUFluidEngine';
 import { FluidConfig } from '../types';
 import {
@@ -96,13 +97,12 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87CEEB);
 
-    const textureLoader = new THREE.TextureLoader();
+    const exrLoader = new EXRLoader();
     const basePath = import.meta.env.BASE_URL || '/';
-    textureLoader.load(
-      `${basePath}DayEnvironmentHDRI057_1K/DayEnvironmentHDRI057_1K_TONEMAPPED.jpg`,
+    exrLoader.load(
+      `${basePath}brown_photostudio_02_4k.exr`,
       (texture) => {
         texture.mapping = THREE.EquirectangularReflectionMapping;
-        texture.colorSpace = THREE.SRGBColorSpace;
         scene.background = texture;
         scene.environment = texture;
         if (resourcesRef.current) {
@@ -192,7 +192,8 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     const textureSize = Math.ceil(Math.sqrt(maxPart));
     const particleRes = new THREE.Vector2(textureSize, textureSize);
 
-    // Visual radius is fixed at particleRadius (smoothness only affects physics)
+    // NEW DESIGN: particleRadius (from UI) = VISUAL radius
+    // Rendering uses particleRadius directly (it's the visual size)
     const visualRadius = configRef.current.particleRadius;
 
     // Validate shader parameters to prevent invalid values
@@ -249,7 +250,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
     const thicknessMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uScale: { value: renderScale },
-        uRadius: { value: configRef.current.particleRadius },
+        uRadius: { value: visualRadius },
         tPosition: { value: null },
         uParticleRes: { value: particleRes },
         uParticleCount: { value: 0 }
@@ -428,7 +429,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
             uniforms: {
               uProj: { value: camera.projectionMatrix },
               uScale: { value: cfg.renderScale },
-              uRadius: { value: cfg.particleRadius },
+              uRadius: { value: cfg.particleRadius }, // particleRadius IS visual radius
               tPosition: { value: engineRef.current?.getPositionTexture() || null },
               uParticleRes: { value: new THREE.Vector2(textureSize, textureSize) },
               uParticleCount: { value: engineRef.current?.particleCount || 0 }
@@ -446,7 +447,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
           const newThicknessMaterial = new THREE.ShaderMaterial({
             uniforms: {
               uScale: { value: cfg.renderScale },
-              uRadius: { value: cfg.particleRadius },
+              uRadius: { value: cfg.particleRadius }, // particleRadius IS visual radius
               tPosition: { value: engineRef.current?.getPositionTexture() || null },
               uParticleRes: { value: new THREE.Vector2(textureSize, textureSize) },
               uParticleCount: { value: engineRef.current?.particleCount || 0 }
@@ -494,7 +495,7 @@ const FluidSimulator: React.FC<Props> = ({ config, onStatsUpdate, triggerInject,
         // Update tracked parameters
         resourcesRef.current.currentShaderParams = newParams;
 
-        // Update particle visual radius (fixed, not affected by smoothness)
+        // Update particle visual radius (particleRadius from UI IS the visual radius)
         resourcesRef.current.depthMaterial.uniforms.uRadius.value = cfg.particleRadius;
         resourcesRef.current.thicknessMaterial.uniforms.uRadius.value = cfg.particleRadius;
         resourcesRef.current.dotMaterial.uniforms.uSize.value = cfg.particleRadius * 5.0;
